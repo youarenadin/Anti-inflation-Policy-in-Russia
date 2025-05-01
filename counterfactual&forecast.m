@@ -847,8 +847,8 @@ cf_forecast_FPAD_cons_i = squeeze(CF_forecast_FPAD_cons(:,:,I));
 cf_forecast_FPAD_cons_p = squeeze(CF_forecast_FPAD_cons(:,:,P));
 cf_forecast_FPAD_cons_b = squeeze(CF_forecast_FPAD_cons(:,:,B));
 
-
-%% Доп. Пытаемся прийти в таргет. Ставка = консенсус или ZCYC, дефицит = Минфин / опрос БР, шок AS = 0, шок MP пересчитывается, шок FP пересчитывается, спроса НЕТ
+%% Дополнительно
+% Пытаемся прийти в таргет. Ставка = консенсус или ZCYC, дефицит = Минфин / опрос БР, шок AS = 0, шок MP пересчитывается, шок FP пересчитывается, спроса НЕТ
 
 CF_forecast_FP_cons = zeros(T_forecast, n_iter, n_vars);   % [86 x 1000 x 4]
 cf_eps_mp_forecast_FP_cons = zeros(n_iter, T_forecast);    % [1000 x 86]
@@ -936,6 +936,83 @@ end
 cf_forecast_FP_cons_i = squeeze(CF_forecast_FP_cons(:,:,I));
 cf_forecast_FP_cons_p = squeeze(CF_forecast_FP_cons(:,:,P));
 cf_forecast_FP_cons_b = squeeze(CF_forecast_FP_cons(:,:,B));
+
+
+%% НЕЙТРАЛЬНАЯ СТАВКА
+% Базовая. Отсутствуют все шоки и все условия, кроме условия на инфляцию
+
+CF_forecast_n = zeros(T_forecast, n_iter, n_vars);   % [86 x 1000 x 4]
+cf_eps_mp_forecast_n = zeros(n_iter, T_forecast);    % [1000 x 86]
+
+Xmat_forecast_n = zeros(T_forecast, n_reg);
+Xmat_forecast_n(1:T,:) = Xmat;
+
+for i = 1:n_iter
+    beta_i = beta(:,i);
+
+    B_p = beta_i(1:10);
+    B_y = beta_i(11:20);
+    B_i = beta_i(21:30);
+    B_b = beta_i(31:40);
+
+    A0inv_full = [A0inv_p(i,:); A0inv_y(i,:); A0inv_i(i,:); A0inv_b(i,:)];
+
+    shocks_as = shocks_AS(i,:)';
+    shocks_ad = shocks_PrivateAD(i,:)';
+    shocks_mp = shocks_MP(i,:)';
+    shocks_fp = shocks_FP(i,:)';
+
+    % 1. Историческая часть
+    Y_temp = zeros(T_forecast, n_vars);
+
+    for t = 1:T
+        x_t = Xmat_forecast_n(t,:)';
+
+        Y_temp(t,P) = B_p' * x_t + A0inv_full(P,:) * [shocks_as(t); shocks_ad(t); shocks_mp(t); shocks_fp(t)];
+        Y_temp(t,Y) = B_y' * x_t + A0inv_full(Y,:) * [shocks_as(t); shocks_ad(t); shocks_mp(t); shocks_fp(t)];
+        Y_temp(t,I) = B_i' * x_t + A0inv_full(I,:) * [shocks_as(t); shocks_ad(t); shocks_mp(t); shocks_fp(t)];
+        Y_temp(t,B) = B_b' * x_t + A0inv_full(B,:) * [shocks_as(t); shocks_ad(t); shocks_mp(t); shocks_fp(t)];
+
+        cf_eps_mp_forecast_n(i,t) = shocks_mp(t);
+    end
+
+    % 2. Прогнозная часть
+    for t = T+1:T_forecast
+        lag1 = Y_temp(t-1,:);
+        lag2 = Y_temp(t-2,:);
+
+        Xmat_forecast_n(t,1:4) = lag1;
+        Xmat_forecast_n(t,5:8) = lag2;
+        Xmat_forecast_n(t,9) = 1;
+        Xmat_forecast_n(t,10) = poil_forecast(t - T);
+
+        x_t = Xmat_forecast_n(t,:)';
+
+        eps_as = 0;
+        eps_ad = 0;
+        eps_fp = 0;
+
+        % пересчет шоков ДКП
+        eps_mp = (p_target_conditional - B_p' * x_t) / A0inv_full(I,3);
+
+        eps_t = [eps_as; eps_ad; eps_mp; eps_fp];
+
+        Y_temp(t,P) = p_target_conditional;
+        Y_temp(t,Y) = B_y' * x_t + A0inv_full(Y,:) * eps_t;
+        Y_temp(t,I) = B_i' * x_t + A0inv_full(I,:) * eps_t;
+        Y_temp(t,B) = B_b' * x_t + A0inv_full(B,:) * eps_t;;
+
+        cf_eps_mp_forecast_n(i,t) = eps_mp;
+    end
+
+    CF_forecast_n(:,i,:) = Y_temp;
+end
+
+%% Анализируем
+
+cf_forecast_n_i = squeeze(CF_forecast_n(:,:,I));
+cf_forecast_n_p = squeeze(CF_forecast_n(:,:,P));
+cf_forecast_n_b = squeeze(CF_forecast_n(:,:,B));
 
 
 %% НЕЙТРАЛЬНАЯ СТАВКА 
@@ -1113,9 +1190,8 @@ cf_forecast_FPAD_n_p = squeeze(CF_forecast_FPAD_n(:,:,P));
 cf_forecast_FPAD_n_b = squeeze(CF_forecast_FPAD_n(:,:,B));
 
 
-
 %% НЕЙТРАЛЬНАЯ СТАВКА
-% Сценарий 3 (есть условие на бюджет: либо минфин, либо опрос), НО НЕТ СПРОСА
+% Сценарий 3 (есть условие на бюджет: либо минфин, либо опрос), НЕТ ЧАСТНОГО СПРОСА
 
 CF_forecast_FP_n = zeros(T_forecast, n_iter, n_vars);   % [86 x 1000 x 4]
 cf_eps_mp_forecast_FP_n = zeros(n_iter, T_forecast);    % [1000 x 86]
@@ -1203,8 +1279,6 @@ end
 cf_forecast_FP_n_i = squeeze(CF_forecast_FP_n(:,:,I));
 cf_forecast_FP_n_p = squeeze(CF_forecast_FP_n(:,:,P));
 cf_forecast_FP_n_b = squeeze(CF_forecast_FP_n(:,:,B));
-
-
 
 
 %% Дополнительно
@@ -1300,8 +1374,10 @@ cf_forecast_FPAD_i = squeeze(CF_forecast_FPAD(:,:,I));
 cf_forecast_FPAD_p = squeeze(CF_forecast_FPAD(:,:,P));
 cf_forecast_FPAD_b = squeeze(CF_forecast_FPAD(:,:,B));
 
+
 %% ПРОВЕРКА УСЛОВНОГО ПРОГНОЗА
 % Базовый VAR-прогноз
+% Он понадобится для следующих проверок
 
 h = 8;  % 2 года (8 кварталов)
 T_forecast = T + h;  % 78 + 8 = 86 периодов
@@ -1391,6 +1467,7 @@ cf_forecast_check_p = squeeze(CF_forecast_check(:,:,P));
 cf_forecast_check_y = squeeze(CF_forecast_check(:,:,Y));
 cf_forecast_check_b = squeeze(CF_forecast_check(:,:,B));
 
+
 %% ПРОВЕРКА УСЛОВНОГО ПРОГНОЗА
 % Проверка работы 2 условий: должны получиться нулевые шоки, как будто с помощью условий был выполнен базовый прогноз
 % Проверка пройдена
@@ -1479,6 +1556,7 @@ cf_forecast_check_verify_i = squeeze(CF_forecast_check_verify(:,:,I));
 cf_forecast_check_verify_p = squeeze(CF_forecast_check_verify(:,:,P));
 cf_forecast_check_verify_y = squeeze(CF_forecast_check_verify(:,:,Y));
 cf_forecast_check_verify_b = squeeze(CF_forecast_check_verify(:,:,B));
+
 
 %% ПРОВЕРКА УСЛОВНОГО ПРОГНОЗА
 % Проверка 2 условий: подставляем траекторию бюджета из сценария 1 (КС = 21 и все) и смотрим, получится ли такая же инфляция 
